@@ -29,7 +29,14 @@ class Inspections:
 
                     # 更新属性
                     self.localnode = data.get('LocalNode', {})
-                    self.clusternode = data.get('ClusterNode', [])
+                    clusternode_data = data.get('ClusterNode', [])  # 获取 ClusterNode 数据
+
+                    # 处理 ClusterNode 数据
+                    if isinstance(clusternode_data, list):
+                        self.clusternode = clusternode_data  # 设置 ClusterNode 到实例属性中
+                    else:
+                        print("ClusterNode 不是列表")
+                        
                     self.cosan_manager_controller = data.get('CoSAN Manager controller', None)
                     self.cosan_manager_console_IP = data.get('CoSAN Manager console IP', None)
                     self.bond = data.get('Bond', [])
@@ -67,9 +74,7 @@ class Inspections:
             command1 = f"systemctl is-enabled unattended-upgrades"
             command2 = f"systemctl is-active unattended-upgrades"
             result_enabled = self.base.com(command1)
-            self.logger.log(f"执行命令：{command1} 结果：{result_enabled.stdout.strip()}")
             result_active = self.base.com(command2)
-            self.logger.log(f"执行命令：{command2} 结果：{result_active.stdout.strip()}")
             if "disabled" in result_enabled.stdout or "non-zero" in result_enabled.stdout and "inactive" in result_active.stdout:
                 return True
             else:
@@ -114,6 +119,10 @@ class Inspections:
                 result = self.base.com(f'ethtool {bond_name}').stdout
                 lines = result.split('\n')
 
+                # 去除每行中的制表符
+                for i in range(len(lines)):
+                    lines[i] = lines[i].replace('\t', '')
+
                 speed = "Default Speed"
                 link_detected = False
                 for line in lines:
@@ -122,7 +131,16 @@ class Inspections:
                     elif "Link detected: yes" in line:
                         link_detected = True
 
-                if bond_speed in speed and link_detected:
+                # 正则表达式模式匹配速度
+                speed_pattern = re.compile(r'\d+')
+
+                # 寻找速度的数字部分
+                speed_value = int(speed_pattern.search(speed).group()) if speed_pattern.search(speed) else 0
+
+                # 获取速度数字，如果没有找到则将其设置为0
+                bond_speed_value = int(re.search(r'\d+', bond_speed).group()) if re.search(r'\d+', bond_speed) else 0
+
+                if bond_speed_value == speed_value and link_detected:
                     self.logger.log(f"{bond_name} 连接正常")
                 else:
                     self.logger.log(f"ERROR - {bond_name} 连接异常")
@@ -160,6 +178,10 @@ class Inspections:
             try:
                 result = self.base.com(f"cat /proc/net/bonding/{bond_name}").stdout
                 lines = result.split('\n')
+                
+                # 去除每行中的制表符
+                for i in range(len(lines)):
+                    lines[i] = lines[i].replace('\t', '')
 
                 bonding_mode_line = next((line.strip() for line in lines if line.startswith('Bonding Mode:')), None)
                 # 如果 bond_mode 不是 802.3ad 且存在于 bonding_mode_line 中且不为空，则直接返回 all_bonds_passed
@@ -206,12 +228,13 @@ class Inspections:
         clusternode_cips = []
         clusternode_iips = []
 
-        if 'ClusterNode' in self.clusternode and isinstance(self.clusternode['ClusterNode'], list):
-            for node in self.clusternode['ClusterNode']:
+
+        if self.clusternode and isinstance(self.clusternode, list):
+            for node in self.clusternode:
                 if isinstance(node, dict):
                     clusternode_cips.append(node.get('Cluster IP', ''))
                     clusternode_iips.append(node.get('iSCSI IP', ''))
-
+        
         if not localnode_cluster_ip or not localnode_iscsi_ip or not clusternode_iips  or not clusternode_cips:
             self.logger.log("未找到足够的 IP 地址信息")
             cluster_network_passed = False
@@ -253,10 +276,14 @@ class Inspections:
             result = self.base.com(command).stdout.strip()
             lines = result.split('\n')
 
+            # 去除每行中的制表符
+            for i in range(len(lines)):
+                lines[i] = lines[i].replace('\t', '')
+
             status_found = False
             for line in lines:
                 if status_found:
-                    if 'link enabled:1  link connected:1' not in line:
+                    if 'link enabled:1link connected:1' not in line:
                         self.logger.log(f"ERROR - 链接状态异常")
                         return False
                 elif 'status:' in line:
@@ -276,7 +303,12 @@ class Inspections:
     # 检查 crm 相关配置
     def check_crm_status(self):
         node_list = list(map(lambda node: node['hostname'], self.clusternode))
+        node_list.append(self.localnode.get("hostname"))
         online_nodes = self.get_online_nodes()  # 获取当前在线节点列表
+
+        # print(f"set(node_list): {set(node_list)}")
+        # print(f"set(online_nodes): {set(online_nodes)}")
+        # print(f"{set(node_list) == set(online_nodes)}")
 
         if set(node_list) == set(online_nodes): # 比对在线节点和配置文件节点名称是否一致
             return True
@@ -291,6 +323,11 @@ class Inspections:
             
             # 提取在线节点信息
             lines = result.split('\n')
+
+            # 去除每行中的制表符
+            for i in range(len(lines)):
+                lines[i] = lines[i].replace('\t', '')
+
             online_nodes = []
             found_node_list = False
             for line in lines:
@@ -342,6 +379,11 @@ class Inspections:
                 expected_no_quorum_policy = "ignore"
             else:
                 expected_no_quorum_policy = "stop"
+
+            # print("have-watchdog found:", "have-watchdog=false" in result)
+            # print("cluster-infrastructure found:", "cluster-infrastructure=corosync" in result)
+            # print("stonith-enabled found:", "stonith-enabled=false" in result)
+            # print("no-quorum-policy found:", f"no-quorum-policy={expected_no_quorum_policy}" in result)
 
             # 检查 have-watchdog, cluster-infrastructure, stonith-enabled 和 no-quorum-policy 是否与预期值匹配
             if (
@@ -417,7 +459,8 @@ class Inspections:
             if node[7] == 'InUse':
                 if not masters[0] == node[0]:
                     check_database_resource_pass = False
-            if node[8] != 'UpToDate':
+            if 'UpToDate' not in node[8]:
+                # print(f"node[8]: {node[8]}")
                 check_database_resource_pass = False
         
         command2 = "drbdadm status linstordb"
@@ -439,6 +482,9 @@ class Inspections:
                 if "UpToDate" not in line.split(":")[1]:
                     peer_disk_up_to_date = False
 
+        print(f"disk_up_to_date: {disk_up_to_date}")
+        print(f"peer_disk_up_to_date: {peer_disk_up_to_date}")
+        print(f"check_database_resource_pass: {check_database_resource_pass}")
         # 检查状态是否符合要求
         if disk_up_to_date and peer_disk_up_to_date:
             pass
@@ -462,8 +508,8 @@ class Inspections:
         nodes = {}
         for line in node_lines[3:]:
             line = line.strip()
-            if line and '┊' in line:  # 检查该行是否包含分隔符 '┊'
-                node_info = [item.strip() for item in line.split('┊')]
+            if line and '|' in line:  # 检查该行是否包含分隔符 '┊'
+                node_info = [item.strip() for item in line.split('|')]
                 nodes[node_info[1]] = {
                     'NodeType': node_info[2],
                     'Addresses': node_info[3],
@@ -487,21 +533,24 @@ class Inspections:
     
     def matches_node_name(self, hostname, cluster_ip, nodes):
         # 检查节点名是否与配置文件中的节点名一致
+        print(f"hostname: {hostname}")
+        print(f"cluster_ip: {cluster_ip}")
+        print(f"nodes: {nodes}")
         if hostname in nodes:
             # 检查状态是否为 Online
-            if nodes[hostname]['State'] == 'Online':
+            if 'Online' in nodes[hostname]['State']:
                 # 检查 IP 是否与配置文件中的集群 IP 一致
-                if cluster_ip in nodes[hostname]['Address']:
+                if cluster_ip in nodes[hostname]['Addresses']:
                     self.logger.log(f"节点 {hostname} 在线，并且 IP 地址一致")
                     return True
                 else:
-                    self.logger.log(f"节点 {hostname} 在线，但 IP 地址与配置文件中的不一致")
+                    self.logger.log(f"ERROR - 节点 {hostname} 在线，但 IP 地址与配置文件中的不一致")
                     return False
             else:
-                self.logger.log(f"节点 {hostname} 不在线")
+                self.logger.log(f"ERROR - 节点 {hostname} 不在线")
                 return False
         else:
-            self.logger.log(f"节点 {hostname} 不在状态信息中")
+            self.logger.log(f"ERROR - 节点 {hostname} 不在状态信息中")
             return False
         
     # 检查 LINSTOR 检查是否所有节点至少有一个不为 DfltDisklessStorPool 的存储池且 State 为 Ok，FreeCapacity ┊ TotalCapacity 不为 0
@@ -518,17 +567,19 @@ class Inspections:
 
         for line in node_lines:
             line = line.strip()
-            if line.startswith('┊'):  # 处理表头
+            if line.startswith('|'):  # 处理表头
                 if not header:
-                    header = [item.strip() for item in line.split('┊')]
+                    header = [item.strip() for item in line.split('|')]
                 else:
-                    node_info = [item.strip() for item in line.split('┊')]
-                    node_data = {header[i]: node_info[i] for i in range(len(header))}
-                    nodes.append(node_data)
-        
+                    node_info = [item.strip() for item in line.split('|')]
+                    if len(node_info) != 3:
+                        node_data = {header[i]: node_info[i] for i in range(len(header))}
+                        nodes.append(node_data)
+
+        print(nodes)
         # 检查 nodes
         for node in nodes:
-            if node['StoragePool'] != 'DfltDisklessStorPool' and node['State'] == 'Ok' and node['FreeCapacity'] and node['TotalCapacity'] and node['FreeCapacity'] != '0 TiB' and node['TotalCapacity'] != '0 TiB':
+            if node['StoragePool'] != 'DfltDisklessStorPool' and 'Ok' in node['State'] and node['FreeCapacity'] and node['TotalCapacity'] and node['FreeCapacity'] != '0 TiB' and node['TotalCapacity'] != '0 TiB':
                 linstor_check_pass2 = True
                 break 
         
