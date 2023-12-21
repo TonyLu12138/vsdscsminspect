@@ -45,6 +45,7 @@ class Inspections:
                     print(f"yaml 数据更新出现问题：{exc}")
         else:
             print(f"未找到 vsdscsminspect_config.yaml 配置文件。请检查 vsdscsminspect_config.yaml文件是否存在。")
+            sys.exit()
         # print(f"self.localnode: {self.localnode}")
         # print(f"self.clusternode: {self.clusternode}")
         # print(f"self.cosan_manager_controller: {self.cosan_manager_controller}")
