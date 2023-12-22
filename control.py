@@ -39,7 +39,7 @@ class Control:
             if not self.ins.check_software_(service):
                 service_bool = False
         
-        if self.ins.check_unattended_upgrades():
+        if self.ins.check_unattended_upgrades() and self.ins.check_configuration_file():
             buffer = True
 
         if buffer and service_bool:
@@ -159,4 +159,6 @@ class Control:
             print("\n总结：")
             for element in self.print_:
                 print(element)
-            print(f"具体请检查 {self.logger.get_name()} 文件")
+            print(f"具体请检查 logs/{self.logger.get_name()} 文件")
+        
+        self.logger.del_()
