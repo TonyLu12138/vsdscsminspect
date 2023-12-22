@@ -55,6 +55,7 @@ class Inspections:
     # 检查软件
     def check_software_(self, service_name):
         try:
+            self.logger.log(f"检查软件：")
             command = f"systemctl is-enabled {service_name}"
             result = self.base.com(command).stdout
             self.logger.log(f"执行命令：{command} 结果：{result.strip()}")
@@ -91,9 +92,7 @@ class Inspections:
             command1 = f"apt-config dump APT::Periodic::Update-Package-Lists"
             command2 = f"apt-config dump APT::Periodic::Unattended-Upgrade"
             result_Update_Package_Lists = self.base.com(command1)
-            self.logger.log(f"执行结果：{result_Update_Package_Lists.stdout.strip()}")
             result_Unattended_Upgrade = self.base.com(command2)
-            self.logger.log(f"执行结果：{result_Unattended_Upgrade.stdout.strip()}")
             if "0" not in result_Update_Package_Lists.stdout and "0" not in result_Unattended_Upgrade.stdout:
                 return False
             else:
@@ -105,6 +104,7 @@ class Inspections:
         
     # 检查 Bond 连接情况
     def check_bond_connections(self):
+        self.logger.log(f"检查网络：")
         all_bonds_passed = True
 
         for bond_config in self.bond:
@@ -142,7 +142,7 @@ class Inspections:
                 bond_speed_value = int(re.search(r'\d+', bond_speed).group()) if re.search(r'\d+', bond_speed) else 0
 
                 if bond_speed_value == speed_value and link_detected:
-                    self.logger.log(f"{bond_name} 连接正常")
+                    self.logger.log(f"{bond_name} 连接正常\n")
                 else:
                     self.logger.log(f"ERROR - {bond_name} 连接异常")
                     all_bonds_passed = False
@@ -200,7 +200,7 @@ class Inspections:
                         else:
                             result_dict[line] = ''
 
-                    self.logger.log(f"将 result 按行分割为字典形式 result_dict: \n{result_dict}")
+                    self.logger.log(f"将 result 按行分割为字典形式 result_dict: \n{result_dict}\n")
 
                     # print(f"bond_configurations: \n{bond_configurations}")
                     for key, value in bond_configurations.items():
@@ -261,7 +261,7 @@ class Inspections:
                 if 'packet loss' in result:
                     loss_rate = result.split('packet loss')[0].split(',')[-1].strip()
                     print(f"{loacl} ping {ip} 的丢包率：{loss_rate}")
-                    self.logger.log(f"{loacl} ping {ip} 的丢包率：{loss_rate}")
+                    self.logger.log(f"{loacl} ping {ip} 的丢包率：{loss_rate}\n")
                 else:
                     self.logger.log(f"ERROR - result 中不包括'packet loss'")
                     ping = False
@@ -273,6 +273,7 @@ class Inspections:
     # 检查 Corosync
     def corosync_check(self):
         try:
+            self.logger.log(f"检查 Corosync：")
             command = "corosync-cfgtool -s"
             result = self.base.com(command).stdout.strip()
             lines = result.split('\n')
@@ -303,6 +304,7 @@ class Inspections:
         
     # 检查 crm 相关配置
     def check_crm_status(self):
+        self.logger.log(f"检查 pacemaker 集群：")
         node_list = list(map(lambda node: node['hostname'], self.clusternode))
         node_list.append(self.localnode.get("hostname"))
         online_nodes = self.get_online_nodes()  # 获取当前在线节点列表
@@ -408,17 +410,23 @@ class Inspections:
             command = "crm status | cat"
             result = self.base.com(command).stdout
 
-            if "vip_ctl" in result and "p_fs_linstordb" in result and "p_linstor-controller" in result:
+            # 找到 Full List of Resources 的部分内容
+            resources_start = result.find('Full List of Resources:')
+            resources_end = result.find('* Slaves:', resources_start)
+
+            resources_section = result[resources_start:resources_end]
+
+            if "vip_ctl" in resources_section and "p_fs_linstordb" in resources_section and "p_linstor-controller" in resources_section:
                 self.logger.log("资源存在")
             else:
                 self.logger.log(f"ERROR - 资源不存在")
                 check_resource_pass = False
 
-            started_statuses = re.findall(r'Started\s(\S+)', result)
+            started_statuses = re.findall(r'Started\s(\S+)', resources_section)
             # print(f"started_statuses: {started_statuses}")
 
             # 匹配 Masters 行
-            masters_match = re.search(r'\* Masters:\s*\[\s*(.*?)\s*\]', result)
+            masters_match = re.search(r'\* Masters:\s*\[\s*(.*?)\s*\]', resources_section)
             if masters_match:
                 masters = masters_match.group(1).split()
                 # print(f"masters: {masters}")
@@ -439,6 +447,8 @@ class Inspections:
         
     # 检查数据库资源存在
     def check_database_resource(self):
+        self.logger.log(f"检查 LINSTOR Controller HA：")
+
         check_resource_pass, masters = self.check_resource()
         check_database_resource_pass = True
 
@@ -483,9 +493,9 @@ class Inspections:
                 if "UpToDate" not in line.split(":")[1]:
                     peer_disk_up_to_date = False
 
-        print(f"disk_up_to_date: {disk_up_to_date}")
-        print(f"peer_disk_up_to_date: {peer_disk_up_to_date}")
-        print(f"check_database_resource_pass: {check_database_resource_pass}")
+        #print(f"disk_up_to_date: {disk_up_to_date}")
+        #print(f"peer_disk_up_to_date: {peer_disk_up_to_date}")
+        #print(f"check_database_resource_pass: {check_database_resource_pass}")
         # 检查状态是否符合要求
         if disk_up_to_date and peer_disk_up_to_date:
             pass
@@ -499,6 +509,8 @@ class Inspections:
         
     # 检查 LINSTOR
     def linstor_check(self):
+        self.logger.log(f"检查 LINSTOR: ")
+
         # 获取节点名称和IP
         linstor_check_pass = True
         command = "linstor n l"
@@ -534,9 +546,9 @@ class Inspections:
     
     def matches_node_name(self, hostname, cluster_ip, nodes):
         # 检查节点名是否与配置文件中的节点名一致
-        print(f"hostname: {hostname}")
-        print(f"cluster_ip: {cluster_ip}")
-        print(f"nodes: {nodes}")
+        # print(f"hostname: {hostname}")
+        # print(f"cluster_ip: {cluster_ip}")
+        # print(f"nodes: {nodes}")
         if hostname in nodes:
             # 检查状态是否为 Online
             if 'Online' in nodes[hostname]['State']:
@@ -577,7 +589,7 @@ class Inspections:
                         node_data = {header[i]: node_info[i] for i in range(len(header))}
                         nodes.append(node_data)
 
-        print(nodes)
+        # print(nodes)
         # 检查 nodes
         for node in nodes:
             if node['StoragePool'] != 'DfltDisklessStorPool' and 'Ok' in node['State'] and node['FreeCapacity'] and node['TotalCapacity'] and node['FreeCapacity'] != '0 TiB' and node['TotalCapacity'] != '0 TiB':
@@ -601,6 +613,8 @@ class Inspections:
 
     # 检查 POD 状态
     def check_pod_status(self):
+        self.logger.log(f"检查 CoSAN Manager：")
+
         if self.cosan_manager_controller:
             check_pod_status_pass = True
             command = "kubectl get pod -A"
@@ -645,11 +659,15 @@ class Inspections:
 
     # 检查 GUI
     def check_gui(self):
-        command = f"curl {self.cosan_manager_console_IP}"
-        result = self.base.com(command).stdout
+        if self.cosan_manager_console_IP:
+            command = f"curl {self.cosan_manager_console_IP}"
+            result = self.base.com(command).stdout
 
-        if f'''Redirecting to <a href="/login">/login</a>.''' in result:
-            return True
+            if f'''Redirecting to <a href="/login">/login</a>.''' in result:
+                return True
+            else:
+                self.logger.log(f"ERROR - 检查 GUI失败")
+                return False
         else:
-            self.logger.log(f"ERROR - 检查 GUI失败")
+            self.logger.log(f"ERROR - 配置文件中 CoSAN Manager console IP 为空")
             return False
