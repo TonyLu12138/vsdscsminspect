@@ -33,3 +33,10 @@ class Logger:
     
     def get_name(self):
         return self.name
+
+    def del_(self):
+        # 输出横杠
+        # 打开文件并读取内容
+        text = "-"*50 + "\n"
+        with open(self.debug_log_file, 'a') as file:
+            file.write(text)
